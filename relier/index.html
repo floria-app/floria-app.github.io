@@ -11,9 +11,14 @@
   (16/10, Courrier, chapitre 2) La page W1 (maquette v19, W0 + W1 ; pret-a-coder.md § 2 point 5 :
   une page STATIQUE, hébergée avec le site, qui appelle la fonction Supabase courrier-code).
     1. elle demande le code affiché sur le téléphone (R2) ;
-    2. après le BON code seulement, elle montre l'adresse Floria et UN bouton « Copier l'adresse et ouvrir Gmail »
-       (le clic prévient aussi le serveur : le texte du haut de R3 en dépend) ;
+    2. après le BON code seulement, elle montre l'adresse Floria, « Copier l'adresse » (la 1re copie prévient aussi le
+       serveur : la consigne « coller » de R3 en dépend) et « Ouvrir Gmail » ;
     3. le téléphone passe tout seul à R3 (il relit sa boîte toutes les 3 s).
+  (23/10, Courrier, refonte) Après son 1er vrai réglage (B25, B27) : la page RESTE ouverte avec l'adresse et son bouton
+  « Copier » (avant, Gmail remplaçait la page : l'adresse était perdue dès que le presse-papiers changeait), et Gmail
+  s'ouvre dans un NOUVEL onglet, sur sa page d'accueil. Plus le lien direct vers la page Transfert : ouverte ainsi, Gmail
+  montrait une simple case sans le bouton « Ajouter une adresse de transfert » (le 30/09, puis dans son Chrome le 23/10) ;
+  le téléphone décrit le chemin par les menus.
   Le jeton du lien du mail W0 est dans le FRAGMENT (#l=…) : il ne part jamais dans les journaux du serveur de la page.
   (23/10, Courrier) Publiée sur https://floria-app.github.io/relier/ (floria-app.fr n'affiche pas le site) : cette adresse
   vient d'UNE source, supabase/functions/_shared/courrierPage.ts (le lien du mail, l'origine permise, le texte de l'appli).
@@ -42,10 +47,14 @@
          box-shadow: 0 8px 18px rgba(90,87,214,.26); }
   .btn:disabled { opacity: .45; cursor: default; box-shadow: none; }
   .btn.fait { background: var(--purple); }
+  .btn.blanc { background: #fff; color: var(--purple); box-shadow: 0 4px 12px rgba(90,87,214,.10); border: 1px solid var(--purplePale);
+               display: flex; align-items: center; justify-content: center; text-decoration: none; }
+  .petit { font-size: 13.5px; line-height: 1.45; color: var(--muted); margin: 14px 0 0; }
   .erreur { margin-top: 14px; font-size: 15px; font-weight: 600; color: var(--red); }
   .p { font-size: 15px; line-height: 1.5; color: var(--navySoft); margin: 12px 0 0; }
   .p b { color: var(--navy); }
   .adresse { font-size: 21px; font-weight: 700; margin-top: 6px; overflow-wrap: break-word; user-select: all; }
+  .adresse .entier { white-space: nowrap; }
   .message h1 { font-size: 22px; }
   [hidden] { display: none !important; }
 </style>
@@ -67,14 +76,12 @@
   <div class="c" id="etape2" hidden>
     <span class="etiquette" style="margin-top:0">Ton adresse Floria</span>
     <div class="adresse" id="adresse"></div>
-    <p class="p">C'est à cette adresse que Gmail enverra les copies de tes mails.</p>
-    <button class="btn" id="copier" type="button">Copier l'adresse et ouvrir Gmail</button>
-    <div id="refusee" hidden>
-      <p class="erreur" id="refuseeTexte"></p>
-      <button class="btn" id="ouvrirGmail" type="button">Ouvrir Gmail</button>
-    </div>
-    <p class="p">Ce bouton copie ton adresse, puis ouvre Gmail à la place de cette page, sur la page <b>Transfert</b> de ses paramètres. Tu restes sur l'ordinateur : ton téléphone te montre quoi remplir.</p>
-    <p class="p" id="plusieurs">Plusieurs boîtes Gmail sur cet ordinateur ? En haut à droite de Gmail, vérifie que c'est bien <b id="gmail"></b>. Sinon, sur ton téléphone, touche « Un souci dans Gmail ? ».</p>
+    <p class="p">Gmail enverra une copie de tes mails à cette adresse.</p>
+    <button class="btn" id="copier" type="button">Copier l'adresse</button>
+    <p class="erreur" id="refuseeTexte" hidden></p>
+    <a class="btn blanc" id="ouvrirGmail" href="https://mail.google.com/mail/u/0/#inbox" target="_blank" rel="noopener noreferrer">Ouvrir Gmail dans un nouvel onglet</a>
+    <p class="petit">Garde cette page ouverte : ton adresse reste ici. Ton téléphone te guide dans Gmail, étape par étape.</p>
+    <p class="petit" id="plusieurs">Plusieurs boîtes Gmail sur cet ordinateur ? En haut à droite de Gmail, vérifie que c'est bien <b id="gmail"></b>.</p>
   </div>
 
   <!-- Les messages qui remplacent la page (lien expiré, lien remplacé, page ouverte sur un téléphone) -->
@@ -90,11 +97,9 @@
   // La fonction courrier-code (supabase/functions/courrier-code). Un harnais d'essai peut la remplacer
   // (window.__FLORIA_FONCTION_CODE), jamais la page publiée.
   var FONCTION = window.__FLORIA_FONCTION_CODE || 'https://azyyoolwrfyfgsfdejwn.supabase.co/functions/v1/courrier-code';
-  // La page Transfert des paramètres de Gmail (maquette W1 · 3 ; aide Gmail 7104828).
-  // ⚠️ Fait du 30/09 (faits-transfert-gmail-30-09.md § 1) : ouverte par CE lien direct, la page a montré une case
-  // libre sans le bouton « Add a forwarding address », et « Save Changes » a répondu « Invalid forwarding
-  // address ». La maquette v19 (W1 · 3) date d'avant ce fait : à trancher avant le 1er vrai réglage.
-  var GMAIL_TRANSFERT = 'https://mail.google.com/mail/u/0/#settings/fwdandpop';
+  // (23/10, refonte) Plus de lien direct vers la page Transfert de Gmail (#settings/fwdandpop) : ouverte ainsi, elle montrait
+  // une simple case, sans le bouton « Ajouter une adresse de transfert » (le 30/09, et dans son Chrome à son 1er réglage).
+  // « Ouvrir Gmail » est un vrai lien (nouvel onglet, sur l'accueil de Gmail) ; le téléphone décrit le chemin par les menus.
 
   var $ = function (id) { return document.getElementById(id); };
   var lien = '';
@@ -152,7 +157,15 @@
         case 'ok':
           code = saisie;
           adresseFloria = d.adresse_floria || '';
-          $('adresse').textContent = adresseFloria.replace('@', '@\u200b');
+          // (23/10, refonte) Passer à la ligne après le @ par un <wbr> (plus un caractère invisible : il partait avec une
+          // copie à la main, et Gmail refusait l'adresse) ; jamais au milieu du nom ni du domaine.
+          (function () {
+            var el = $('adresse'), at = adresseFloria.indexOf('@');
+            el.textContent = '';
+            var morceau = function (t) { var s = document.createElement('span'); s.className = 'entier'; s.textContent = t; el.appendChild(s); };
+            if (at > 0) { morceau(adresseFloria.slice(0, at + 1)); el.appendChild(document.createElement('wbr')); morceau(adresseFloria.slice(at + 1)); }
+            else morceau(adresseFloria);
+          })();
           if (d.adresse_gmail) $('gmail').textContent = d.adresse_gmail; else $('plusieurs').hidden = true;
           $('etape1').hidden = true; $('etape2').hidden = false;
           $('copier').focus();
@@ -178,30 +191,32 @@
     });
   });
 
-  function ouvrirGmail() { location.href = GMAIL_TRANSFERT; }
-
+  // (23/10, refonte) « Copier l'adresse » : la page reste là, on peut recopier autant de fois qu'on veut. La 1re réponse
+  // (copiée ou refusée) prévient le serveur : le téléphone dit alors « colle » ou « tape » (R3).
+  var prevenu = false;
+  function prevenir(action) {
+    if (prevenu) return;
+    prevenu = true;
+    var corps = { action: action, code: code };
+    if (lien) corps.lien = lien;
+    appeler(corps);
+  }
   $('copier').addEventListener('click', function () {
     var adresse = adresseFloria;
     var bouton = $('copier');
-    bouton.disabled = true;
     var copie = navigator.clipboard && window.isSecureContext ? navigator.clipboard.writeText(adresse) : Promise.reject(new Error('presse-papiers'));
     copie.then(function () {
-      bouton.textContent = 'Adresse copiée';
+      bouton.textContent = 'Adresse copiée \u2713';
       bouton.classList.add('fait');
-      // Le clic prévient aussi le serveur (R3 : « Ton adresse Floria est copiée »), puis Gmail s'ouvre ici.
-      var corps = { action: 'copiee', code: code };
-      if (lien) corps.lien = lien;
-      appeler(corps).then(function () { setTimeout(ouvrirGmail, 400); });
+      $('refuseeTexte').hidden = true;
+      prevenir('copiee');
+      setTimeout(function () { bouton.textContent = "Copier l'adresse"; bouton.classList.remove('fait'); }, 4000);
     }, function () {
-      var corps = { action: 'copie_refusee', code: code };
-      if (lien) corps.lien = lien;
-      appeler(corps);
-      bouton.hidden = true;
-      $('refuseeTexte').textContent = 'La copie n\'a pas marché. Clique sur Ouvrir Gmail, puis tape ton adresse Floria dans la case : ' + adresse + '.';
-      $('refusee').hidden = false;
+      prevenir('copie_refusee');
+      $('refuseeTexte').textContent = "La copie n'a pas marché. Sélectionne l'adresse ci-dessus et copie-la (Ctrl+C, ou \u2318+C sur un Mac), ou tape-la dans Gmail.";
+      $('refuseeTexte').hidden = false;
     });
   });
-  $('ouvrirGmail').addEventListener('click', ouvrirGmail);
 })();
 </script>
 </body>
