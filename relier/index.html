@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Ton réglage Courrier · Floria</title>
+<link rel="icon" href="fleur.png">
+<!--
+  (16/10, Courrier, chapitre 2) La page W1 (maquette v19, W0 + W1 ; pret-a-coder.md § 2 point 5 :
+  une page STATIQUE, hébergée avec le site, qui appelle la fonction Supabase courrier-code).
+    1. elle demande le code affiché sur le téléphone (R2) ;
+    2. après le BON code seulement, elle montre l'adresse Floria et UN bouton « Copier l'adresse et ouvrir Gmail »
+       (le clic prévient aussi le serveur : le texte du haut de R3 en dépend) ;
+    3. le téléphone passe tout seul à R3 (il relit sa boîte toutes les 3 s).
+  Le jeton du lien du mail W0 est dans le FRAGMENT (#l=…) : il ne part jamais dans les journaux du serveur de la page.
+  (23/10, Courrier) Publiée sur https://floria-app.github.io/relier/ (floria-app.fr n'affiche pas le site) : cette adresse
+  vient d'UNE source, supabase/functions/_shared/courrierPage.ts (le lien du mail, l'origine permise, le texte de l'appli).
+  L'adresse tapée à la main (R2f) : pas de jeton, le code seul désigne la boîte (freiné côté serveur).
+  Sans compte : courrier-code est déployée sans vérification de jeton ; la page n'envoie QUE « content-type »
+  (les en-têtes permis par la fonction). Rien n'est gardé dans le navigateur.
+-->
+<style>
+  :root { --navy:#13123A; --navySoft:#3A3970; --muted:#615F86; --purple:#5A57D6; --purpleSoft:#8886EC; --purplePale:#E3E2FB; --red:#C03030; --bg:#C6D4F2; --bgTop:#DAD8F5; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: linear-gradient(180deg, var(--bgTop), var(--bg)) fixed; color: var(--navy);
+         font: 16px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .page { max-width: 520px; margin: 0 auto; padding: 32px 20px 64px; }
+  .marque { display: flex; align-items: center; gap: 8px; }
+  .marque img { height: 40px; }
+  .marque b { font-size: 20px; font-weight: 900; letter-spacing: -.3px; }
+  .c { margin-top: 22px; background: #fff; border-radius: 22px; padding: 28px 26px; box-shadow: 0 10px 30px rgba(90,87,214,.12); }
+  h1 { font-size: 24px; font-weight: 900; letter-spacing: -.5px; line-height: 1.25; margin: 0; }
+  .etiquette { font-size: 14px; font-weight: 600; color: var(--muted); margin-top: 18px; display: block; }
+  #code { margin-top: 8px; width: 100%; height: 64px; border: 2px solid var(--purple); border-radius: 14px; text-align: center;
+          font-family: inherit; font-size: 30px; font-weight: 900; letter-spacing: 6px; color: var(--navy); text-transform: uppercase; outline: none; }
+  #code:focus { box-shadow: 0 0 0 4px rgba(90,87,214,.18); }
+  .btn { margin-top: 20px; width: 100%; min-height: 56px; border: 0; border-radius: 100px; cursor: pointer; color: #fff;
+         background: linear-gradient(90deg, var(--purple), var(--purpleSoft)); font-family: inherit; font-weight: 800; font-size: 16px; line-height: 1.2; padding: 0 18px;
+         box-shadow: 0 8px 18px rgba(90,87,214,.26); }
+  .btn:disabled { opacity: .45; cursor: default; box-shadow: none; }
+  .btn.fait { background: var(--purple); }
+  .erreur { margin-top: 14px; font-size: 15px; font-weight: 600; color: var(--red); }
+  .p { font-size: 15px; line-height: 1.5; color: var(--navySoft); margin: 12px 0 0; }
+  .p b { color: var(--navy); }
+  .adresse { font-size: 21px; font-weight: 700; margin-top: 6px; overflow-wrap: break-word; user-select: all; }
+  .message h1 { font-size: 22px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="marque"><img src="fleur.png" alt=""><b>Floria</b></div>
+
+  <!-- W1 · 1. La page demande le code -->
+  <form class="c" id="etape1" autocomplete="off" novalidate>
+    <h1>Relier ta boîte Gmail à Floria</h1>
+    <label class="etiquette" for="code">Code affiché sur ton téléphone</label>
+    <input id="code" name="code" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="7" aria-describedby="erreur1">
+    <button class="btn" id="continuer" type="submit" disabled>Continuer</button>
+    <div class="erreur" id="erreur1" role="alert" hidden></div>
+  </form>
+
+  <!-- W1 · 2. Puis ton adresse (seulement après le bon code) -->
+  <div class="c" id="etape2" hidden>
+    <span class="etiquette" style="margin-top:0">Ton adresse Floria</span>
+    <div class="adresse" id="adresse"></div>
+    <p class="p">C'est à cette adresse que Gmail enverra les copies de tes mails.</p>
+    <button class="btn" id="copier" type="button">Copier l'adresse et ouvrir Gmail</button>
+    <div id="refusee" hidden>
+      <p class="erreur" id="refuseeTexte"></p>
+      <button class="btn" id="ouvrirGmail" type="button">Ouvrir Gmail</button>
+    </div>
+    <p class="p">Ce bouton copie ton adresse, puis ouvre Gmail à la place de cette page, sur la page <b>Transfert</b> de ses paramètres. Tu restes sur l'ordinateur : ton téléphone te montre quoi remplir.</p>
+    <p class="p" id="plusieurs">Plusieurs boîtes Gmail sur cet ordinateur ? En haut à droite de Gmail, vérifie que c'est bien <b id="gmail"></b>. Sinon, sur ton téléphone, touche « Un souci dans Gmail ? ».</p>
+  </div>
+
+  <!-- Les messages qui remplacent la page (lien expiré, lien remplacé, page ouverte sur un téléphone) -->
+  <div class="c message" id="message" hidden>
+    <h1 id="messageTitre"></h1>
+    <p class="p" id="messageTexte"></p>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  // La fonction courrier-code (supabase/functions/courrier-code). Un harnais d'essai peut la remplacer
+  // (window.__FLORIA_FONCTION_CODE), jamais la page publiée.
+  var FONCTION = window.__FLORIA_FONCTION_CODE || 'https://azyyoolwrfyfgsfdejwn.supabase.co/functions/v1/courrier-code';
+  // La page Transfert des paramètres de Gmail (maquette W1 · 3 ; aide Gmail 7104828).
+  // ⚠️ Fait du 30/09 (faits-transfert-gmail-30-09.md § 1) : ouverte par CE lien direct, la page a montré une case
+  // libre sans le bouton « Add a forwarding address », et « Save Changes » a répondu « Invalid forwarding
+  // address ». La maquette v19 (W1 · 3) date d'avant ce fait : à trancher avant le 1er vrai réglage.
+  var GMAIL_TRANSFERT = 'https://mail.google.com/mail/u/0/#settings/fwdandpop';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var lien = '';
+  var m = /(?:^#|&)l=([^&]+)/.exec(location.hash || '');
+  if (m) { try { lien = decodeURIComponent(m[1]); } catch (e) { lien = ''; } }
+  var code = '';
+  var adresseFloria = ''; // l'adresse exacte (celle qu'on copie) ; l'affichage passe à la ligne après le @
+  var occupe = false;
+
+  function message(titre, texte) {
+    $('etape1').hidden = true; $('etape2').hidden = true; $('message').hidden = false;
+    $('messageTitre').textContent = titre; $('messageTexte').textContent = texte;
+  }
+  function erreur(t) { var e = $('erreur1'); e.textContent = t; e.hidden = !t; }
+
+  // Page ouverte sur un téléphone : Gmail ne propose pas ce réglage sur téléphone.
+  if (/iPhone|iPod|Android.+Mobile|Windows Phone/i.test(navigator.userAgent || '')) {
+    message('Ce réglage se fait sur un ordinateur', 'Gmail ne le propose pas sur téléphone. Ouvre ce même mail sur ton ordinateur.');
+    return;
+  }
+
+  // Le champ prend 6 caractères : l'espace s'ajoute toute seule ; minuscules et sans espace acceptés.
+  var champ = $('code');
+  champ.addEventListener('input', function () {
+    var brut = champ.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    champ.value = brut.length > 3 ? brut.slice(0, 3) + ' ' + brut.slice(3) : brut;
+    $('continuer').disabled = brut.length !== 6 || occupe;
+    erreur('');
+  });
+  champ.focus();
+
+  function appeler(corps) {
+    return fetch(FONCTION, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(corps),
+      credentials: 'omit',
+      cache: 'no-store',
+    }).then(function (r) {
+      return r.json().catch(function () { return { etat: 'serveur' }; });
+    }, function () { return { etat: 'reseau' }; });
+  }
+
+  $('etape1').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var saisie = champ.value.replace(/\s/g, '');
+    if (saisie.length !== 6 || occupe) return;
+    occupe = true; $('continuer').disabled = true; erreur('');
+    var corps = { action: 'verifier', code: saisie };
+    if (lien) corps.lien = lien;
+    appeler(corps).then(function (d) {
+      occupe = false;
+      $('continuer').disabled = champ.value.replace(/\s/g, '').length !== 6;
+      switch (d && d.etat) {
+        case 'ok':
+          code = saisie;
+          adresseFloria = d.adresse_floria || '';
+          $('adresse').textContent = adresseFloria.replace('@', '@\u200b');
+          if (d.adresse_gmail) $('gmail').textContent = d.adresse_gmail; else $('plusieurs').hidden = true;
+          $('etape1').hidden = true; $('etape2').hidden = false;
+          $('copier').focus();
+          return;
+        case 'code_faux': case 'format':
+          erreur("Ce code n'est pas valable. Vérifie-le sur ton téléphone."); break;
+        case 'code_expire':
+          erreur('Ce code a expiré. Tape celui que ton téléphone affiche maintenant.'); break;
+        case 'trop_essais':
+          erreur("Trop d'essais : ce code ne marche plus. Ton téléphone affiche un nouveau code : tape-le ici."); break;
+        case 'lien_expire':
+          message('Ce lien a expiré', 'Sur ton téléphone, dans Floria, touche Je ne trouve pas ce mail, puis Renvoyer le mail.'); return;
+        case 'plus_valable':
+          message("Ce lien n'est plus valable.", 'Sur ton téléphone, suis le mail le plus récent.'); return;
+        case 'trop_vite':
+          erreur("Trop d'essais depuis cet ordinateur : attends quelques minutes, puis réessaie."); break;
+        case 'reseau':
+          erreur('Il faut internet pour ça.'); break;
+        default:
+          erreur("Floria n'a pas pu se connecter. Réessaie dans un instant.");
+      }
+      champ.select();
+    });
+  });
+
+  function ouvrirGmail() { location.href = GMAIL_TRANSFERT; }
+
+  $('copier').addEventListener('click', function () {
+    var adresse = adresseFloria;
+    var bouton = $('copier');
+    bouton.disabled = true;
+    var copie = navigator.clipboard && window.isSecureContext ? navigator.clipboard.writeText(adresse) : Promise.reject(new Error('presse-papiers'));
+    copie.then(function () {
+      bouton.textContent = 'Adresse copiée';
+      bouton.classList.add('fait');
+      // Le clic prévient aussi le serveur (R3 : « Ton adresse Floria est copiée »), puis Gmail s'ouvre ici.
+      var corps = { action: 'copiee', code: code };
+      if (lien) corps.lien = lien;
+      appeler(corps).then(function () { setTimeout(ouvrirGmail, 400); });
+    }, function () {
+      var corps = { action: 'copie_refusee', code: code };
+      if (lien) corps.lien = lien;
+      appeler(corps);
+      bouton.hidden = true;
+      $('refuseeTexte').textContent = 'La copie n\'a pas marché. Clique sur Ouvrir Gmail, puis tape ton adresse Floria dans la case : ' + adresse + '.';
+      $('refusee').hidden = false;
+    });
+  });
+  $('ouvrirGmail').addEventListener('click', ouvrirGmail);
+})();
+</script>
+</body>
+</html>
