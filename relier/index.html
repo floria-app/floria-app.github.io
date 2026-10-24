@@ -25,6 +25,9 @@
   L'adresse tapée à la main (R2f) : pas de jeton, le code seul désigne la boîte (freiné côté serveur).
   Sans compte : courrier-code est déployée sans vérification de jeton ; la page n'envoie QUE « content-type »
   (les en-têtes permis par la fonction). Rien n'est gardé dans le navigateur.
+  (24/10, Courrier, lot 5) Le MODE « FILTRE » (#f=…, le mail « Ton filtre Gmail » ; sa remarque n° 32) : pas de code ni
+  d'adresse Floria ; la page demande à courrier-code (« filtre ») le texte à coller dans la case « De » de Gmail et le montre
+  avec « Copier le texte ». Le jeton (48 h) est dans le FRAGMENT lui aussi. Sans #f= : la page d'avant, inchangée.
 -->
 <style>
   :root { --navy:#13123A; --navySoft:#3A3970; --muted:#615F86; --purple:#5A57D6; --purpleSoft:#8886EC; --purplePale:#E3E2FB; --red:#C03030; --bg:#C6D4F2; --bgTop:#DAD8F5; }
@@ -56,6 +59,10 @@
   .adresse { font-size: 21px; font-weight: 700; margin-top: 6px; overflow-wrap: break-word; user-select: all; }
   .adresse .entier { white-space: nowrap; }
   .message h1 { font-size: 22px; }
+  /* (24/10, Courrier, lot 5) le texte du filtre : sélectionnable d'un clic, coupé n'importe où (une longue suite d'adresses) */
+  .texte { margin-top: 8px; padding: 14px 16px; border-radius: 14px; background: var(--purplePale); color: var(--navy);
+           font: 600 14.5px/1.5 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
+  .bloc + .bloc { margin-top: 22px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -84,6 +91,15 @@
     <p class="petit" id="plusieurs">Plusieurs boîtes Gmail sur cet ordinateur ? En haut à droite de Gmail, vérifie que c'est bien <b id="gmail"></b>.</p>
   </div>
 
+  <!-- (24/10, Courrier, lot 5) Le filtre anti-spam de Gmail : le mail « Ton filtre Gmail » ouvre cette page avec #f=… -->
+  <div class="c" id="filtre" hidden>
+    <h1>Ton filtre Gmail</h1>
+    <p class="petit" id="filtreAttente">Un instant…</p>
+    <div id="filtres"></div>
+    <a class="btn blanc" id="ouvrirGmailFiltre" href="https://mail.google.com/mail/u/0/#inbox" target="_blank" rel="noopener noreferrer" hidden>Ouvrir Gmail dans un nouvel onglet</a>
+    <p class="petit" id="filtreGuide" hidden>Ton téléphone te guide dans Gmail.</p>
+  </div>
+
   <!-- Les messages qui remplacent la page (lien expiré, lien remplacé, page ouverte sur un téléphone) -->
   <div class="c message" id="message" hidden>
     <h1 id="messageTitre"></h1>
@@ -110,15 +126,66 @@
   var occupe = false;
 
   function message(titre, texte) {
-    $('etape1').hidden = true; $('etape2').hidden = true; $('message').hidden = false;
+    $('etape1').hidden = true; $('etape2').hidden = true; $('filtre').hidden = true; $('message').hidden = false;
     $('messageTitre').textContent = titre; $('messageTexte').textContent = texte;
   }
   function erreur(t) { var e = $('erreur1'); e.textContent = t; e.hidden = !t; }
+
+  // (24/10, Courrier, lot 5) Le mode « filtre » (#f=…, le mail « Ton filtre Gmail ») : pas de code, pas d'adresse Floria.
+  var mf = /(?:^#|&)f=([^&]+)/.exec(location.hash || '');
+  var jetonFiltre = '';
+  if (mf) { try { jetonFiltre = decodeURIComponent(mf[1]); } catch (e) { jetonFiltre = '?'; } }
+  if (mf) { document.title = 'Ton filtre Gmail · Floria'; $('etape1').hidden = true; }
 
   // Page ouverte sur un téléphone : Gmail ne propose pas ce réglage sur téléphone.
   if (/iPhone|iPod|Android.+Mobile|Windows Phone/i.test(navigator.userAgent || '')) {
     message('Ce réglage se fait sur un ordinateur', 'Gmail ne le propose pas sur téléphone. Ouvre ce même mail sur ton ordinateur.');
     return;
+  }
+
+  if (mf) { modeFiltre(); return; }
+
+  // (24/10, Courrier, lot 5) La page demande à courrier-code (« filtre ») le texte à coller dans la case « De » de Gmail, et le
+  // montre avec « Copier le texte » (un bloc par filtre : 15 adresses et 500 lettres au plus chacun). Rien n'est gardé dans le
+  // navigateur ; la réponse ne porte que les textes.
+  function modeFiltre() {
+    $('filtre').hidden = false;
+    appeler({ action: 'filtre', f: jetonFiltre }).then(function (d) {
+      switch (d && d.etat) {
+        case 'ok': break;
+        // (24/10, Courrier, lot 5, finisseur) le nom du bouton de S1 (aucun bouton « nouveau mail » n'existe).
+        case 'lien_expire': message('Ce lien a expiré', "Sur ton téléphone, dans Floria, touche « M'envoyer le mail »."); return;
+        case 'plus_valable': message("Ce lien n'est plus valable.", 'Suis le mail le plus récent.'); return;
+        case 'trop_vite': message("Trop d'essais depuis cet ordinateur", 'Attends quelques minutes, puis recharge cette page.'); return;
+        case 'reseau': message('Il faut internet pour ça.', 'Recharge cette page quand la connexion revient.'); return;
+        default: message("Floria n'a pas pu se connecter.", 'Recharge cette page dans un instant.'); return;
+      }
+      var textes = (d.filtres || []).filter(function (t) { return typeof t === 'string' && t; });
+      if (!textes.length) { message("Ce lien n'est plus valable.", 'Suis le mail le plus récent.'); return; }
+      $('filtreAttente').hidden = true;
+      var boite = $('filtres');
+      textes.forEach(function (texte, i) {
+        var bloc = document.createElement('div'); bloc.className = 'bloc';
+        var etiquette = document.createElement('span'); etiquette.className = 'etiquette';
+        etiquette.textContent = textes.length > 1 ? 'Filtre ' + (i + 1) + ' sur ' + textes.length : 'Texte à coller dans Gmail';
+        var zone = document.createElement('div'); zone.className = 'texte'; zone.textContent = texte;
+        var bouton = document.createElement('button'); bouton.className = 'btn'; bouton.type = 'button'; bouton.textContent = 'Copier le texte';
+        var refus = document.createElement('p'); refus.className = 'erreur'; refus.hidden = true;
+        bouton.addEventListener('click', function () {
+          var copie = navigator.clipboard && window.isSecureContext ? navigator.clipboard.writeText(texte) : Promise.reject(new Error('presse-papiers'));
+          copie.then(function () {
+            bouton.textContent = 'Texte copié ✓'; bouton.classList.add('fait'); refus.hidden = true;
+            setTimeout(function () { bouton.textContent = 'Copier le texte'; bouton.classList.remove('fait'); }, 4000);
+          }, function () {
+            refus.textContent = "La copie n'a pas marché. Sélectionne le texte et copie-le (Ctrl+C, ou ⌘+C sur un Mac).";
+            refus.hidden = false;
+          });
+        });
+        bloc.appendChild(etiquette); bloc.appendChild(zone); bloc.appendChild(bouton); bloc.appendChild(refus);
+        boite.appendChild(bloc);
+      });
+      $('ouvrirGmailFiltre').hidden = false; $('filtreGuide').hidden = false;
+    });
   }
 
   // Le champ prend 6 caractères : l'espace s'ajoute toute seule ; minuscules et sans espace acceptés.
